@@ -1,0 +1,72 @@
+module fir_genvar(
+    input  wire clk,
+    input  wire rst,
+    input  wire signed [15:0] x_in,
+    input  wire signed [15:0] h [0:99],
+    output reg  signed [39:0] y_out
+);
+
+parameter TAPS = 100;
+
+// Delay line
+reg signed [15:0] x_delay [0:TAPS-1];
+
+integer i;
+
+// Shift register (delay line)
+always @(posedge clk or posedge rst) begin
+    if(rst) begin
+        for(i = 0; i < TAPS; i = i + 1)
+            x_delay[i] <= 16'sd0;
+    end
+    else begin
+        for(i = TAPS-1; i > 0; i = i - 1)
+            x_delay[i] <= x_delay[i-1];
+
+        x_delay[0] <= x_in;
+    end
+end
+
+// FIR computation using generate and FPB modules
+wire signed [39:0] sum [0:TAPS];
+assign sum[0] = 40'sd0;
+
+genvar k;
+generate
+    for(k = 0; k < TAPS; k = k + 1) begin : fir_tap
+        FPB fpb_inst(
+            .a_in(x_delay[k]),
+            .b_in(sum[k]),
+            .h_i(h[k]),
+            .a_out(),
+            .b_out(sum[k+1])
+        );
+    end
+endgenerate
+
+always @(posedge clk or posedge rst) begin
+    if (rst)
+        y_out <= 0;
+    else
+        y_out <= sum[TAPS];
+end
+
+endmodule
+
+module FPB(
+    input  signed [15:0] a_in,
+    input  signed [39:0] b_in,
+    input  signed [15:0] h_i,
+    output signed [15:0] a_out,
+    output signed [39:0] b_out
+);
+
+    wire signed [31:0] mult;
+
+    assign mult = a_in * h_i;
+
+    assign a_out = a_in;
+
+    assign b_out = b_in + {{8{mult[31]}}, mult};
+
+endmodule
